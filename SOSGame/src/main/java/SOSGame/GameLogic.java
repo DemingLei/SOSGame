@@ -37,7 +37,6 @@ public class GameLogic {
         return sosGame.getWinner();
     }
 
-    // 新增方法：暴露当前得分
     public int getBlueScore() {
         if (sosGame instanceof GeneralGame) {
             return ((GeneralGame) sosGame).getBlueScore();
