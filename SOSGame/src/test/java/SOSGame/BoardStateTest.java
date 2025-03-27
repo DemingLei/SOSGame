@@ -14,7 +14,7 @@ class BoardStateTest {
         //Create a 3×3 board, then traverse all the cells and check if each position is an empty string by getCell(i, j)
         for (int i = 0; i < size; i++) {
             for (int j = 0; j < size; j++) {
-                assertEquals("", boardState.getCell(i, j), "初始时每个单元格都应为空");
+                assertEquals("", boardState.getCell(i, j), "Initially every cell should be empty");
             }
         }
     }
