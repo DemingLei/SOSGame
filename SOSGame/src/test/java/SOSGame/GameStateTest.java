@@ -6,7 +6,6 @@ import org.junit.jupiter.api.Test;
 
 public class GameStateTest {
 
-    // 用于测试的简单子类
     class DummyGameState extends GameState {
         public DummyGameState(BoardSize boardSize) {
             super(boardSize);
