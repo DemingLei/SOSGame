@@ -1,5 +1,6 @@
 package SOSGame;
 
+import javafx.animation.PauseTransition;
 import javafx.application.Application;
 import javafx.geometry.Insets;
 import javafx.geometry.Pos;
@@ -7,6 +8,9 @@ import javafx.scene.Scene;
 import javafx.scene.control.*;
 import javafx.scene.layout.*;
 import javafx.stage.Stage;
+import javafx.util.Duration;
+import javafx.application.Platform;
+
 
 public class GUI extends Application {
     private GameLogic gameLogic;
@@ -26,18 +30,25 @@ public class GUI extends Application {
     // Score label
     private Label blueScoreLabel, redScoreLabel;
 
-    // Player sheet
+    // Player panels
     private VBox bluePlayerSheet;
     private VBox redPlayerSheet;
 
+    // Player objects
+    private Player bluePlayer;
+    private Player redPlayer;
+
+    // Marker: Whether the game over hint box has been displayed or not
+    private boolean gameOverAlertShown = false;
+
     @Override
     public void start(Stage primaryStage) {
-        // Game options area
+
+        // Game Options Area
         HBox topBoard = new HBox(20);
         topBoard.setPadding(new Insets(20));
         topBoard.setAlignment(Pos.CENTER);
 
-        // Game Mode Selection
         ToggleGroup gameTypes = new ToggleGroup();
         simpleGame = new RadioButton("Simple game");
         generalGame = new RadioButton("General game");
@@ -45,14 +56,13 @@ public class GUI extends Application {
         generalGame.setToggleGroup(gameTypes);
         simpleGame.setSelected(true);
 
-        // Board Size
         Label boardSizeLabel = new Label("Board size:");
         boardSizeNumber = new TextField("9");
         boardSizeNumber.setPrefWidth(40);
 
         topBoard.getChildren().addAll(simpleGame, generalGame, boardSizeLabel, boardSizeNumber);
 
-        // Left side: blue panel
+        // blue board
         bluePlayerSheet = new VBox(10);
         bluePlayerSheet.setPadding(new Insets(10));
         bluePlayerSheet.setAlignment(Pos.CENTER);
@@ -65,7 +75,6 @@ public class GUI extends Application {
         blueComputer.setToggleGroup(bluePlayerType);
         blueHuman.setSelected(true);
 
-        // S and O buttons
         ToggleGroup blueSOLetter = new ToggleGroup();
         blueS = new RadioButton("S");
         blueO = new RadioButton("O");
@@ -83,11 +92,10 @@ public class GUI extends Application {
         });
 
         bluePlayerSheet.getChildren().addAll(bluePlayerLabel, blueHuman, blueS, blueO, blueComputer);
-        // Blue score display
         blueScoreLabel = new Label("Score: 0");
         bluePlayerSheet.getChildren().add(blueScoreLabel);
 
-        // Right side: red panel
+        // red board
         redPlayerSheet = new VBox(10);
         redPlayerSheet.setPadding(new Insets(10));
         redPlayerSheet.setAlignment(Pos.CENTER);
@@ -100,7 +108,6 @@ public class GUI extends Application {
         redComputer.setToggleGroup(redPlayerType);
         redHuman.setSelected(true);
 
-        // S and O buttons
         ToggleGroup redSOLetter = new ToggleGroup();
         redS = new RadioButton("S");
         redO = new RadioButton("O");
@@ -118,17 +125,16 @@ public class GUI extends Application {
         });
 
         redPlayerSheet.getChildren().addAll(redPlayerLabel, redHuman, redS, redO, redComputer);
-        // Red score display
         redScoreLabel = new Label("Score: 0");
         redPlayerSheet.getChildren().add(redScoreLabel);
 
-        // Board area
+        // board area
         gameTable = new GridPane();
         gameTable.setPadding(new Insets(20));
         gameTable.setAlignment(Pos.CENTER);
         gameTable.setGridLinesVisible(true);
 
-        // Bottom: Control button area
+        // bottom control area
         HBox bottomWindow = new HBox(20);
         bottomWindow.setPadding(new Insets(10));
         bottomWindow.setAlignment(Pos.CENTER);
@@ -141,7 +147,6 @@ public class GUI extends Application {
 
         bottomWindow.getChildren().addAll(recordGame, currentTurn, replayButton, newGameButton);
 
-        // overall UI
         BorderPane root = new BorderPane();
         root.setTop(topBoard);
         root.setLeft(bluePlayerSheet);
@@ -149,7 +154,6 @@ public class GUI extends Application {
         root.setCenter(gameTable);
         root.setBottom(bottomWindow);
 
-        // New Game Button
         newGameButton.setOnAction(e -> startNewGame());
 
         Scene scene = new Scene(root, 700, 700);
@@ -157,12 +161,12 @@ public class GUI extends Application {
         primaryStage.setScene(scene);
         primaryStage.show();
 
-        // New game
         startNewGame();
     }
 
-    // The size of the board must be greater than 2
+    // Reset the board when starting a new game
     private void startNewGame() {
+        gameOverAlertShown = false;
         int size = 9;
         try {
             size = Integer.parseInt(boardSizeNumber.getText());
@@ -170,27 +174,36 @@ public class GUI extends Application {
             boardSizeNumber.setText("9");
             size = 9;
         }
-
         if (size <= 2) {
             Alert alert = new Alert(Alert.AlertType.ERROR);
             alert.setTitle("Invalid Board Size");
             alert.setHeaderText("Illegal Board Size");
-            alert.setContentText("Please Re-type");
+            alert.setContentText("Please re-type a valid size");
             alert.showAndWait();
             return;
         }
 
         boolean isSimple = simpleGame.isSelected();
-        // Create game logic based on board size and game mode
         gameLogic = new GameLogic(new BoardSize(size), new GameMode(isSimple));
         currentPlayer = "Blue";
         updateCurrentTurnLabel();
         updateScores();
 
-        // Empty the old board and create a new one
+        // Determine player type based on radio buttons
+        if (blueHuman.isSelected()) {
+            bluePlayer = new HumanPlayer("Blue", "Blue");
+        } else {
+            bluePlayer = new ComputerPlayer("Blue", "Blue");
+        }
+        if (redHuman.isSelected()) {
+            redPlayer = new HumanPlayer("Red", "Red");
+        } else {
+            redPlayer = new ComputerPlayer("Red", "Red");
+        }
+
+        // Rebuild Board Buttons
         gameTable.getChildren().clear();
         boardButtons = new Button[size][size];
-
         for (int row = 0; row < size; row++) {
             for (int col = 0; col < size; col++) {
                 Button cellButton = new Button();
@@ -199,14 +212,18 @@ public class GUI extends Application {
                 final int r = row;
                 final int c = col;
                 cellButton.setOnAction(e -> handleCellClick(r, c, cellButton));
-
                 boardButtons[row][col] = cellButton;
                 gameTable.add(cellButton, col, row);
             }
         }
+
+
+        if (isCurrentPlayerComputer()) {
+            computerMove();
+        }
     }
 
-    // Checkerboard grid click events
+    // Cell clicking in human-machine matchmaking: only works for human players
     private void handleCellClick(int row, int col, Button cellButton) {
         if (!gameLogic.getCell(row, col).isEmpty() || gameLogic.isGameOver()) {
             return;
@@ -225,41 +242,62 @@ public class GUI extends Application {
             letter = redS.isSelected() ? "S" : "O";
             cellButton.setStyle(cellButton.getStyle() + " -fx-text-fill: red;");
         }
-
         int sosCount = gameLogic.makeMove(row, col, letter, currentPlayer);
         if (sosCount < 0) {
             return;
         }
         cellButton.setText(letter);
-
-
         if (sosCount == 0) {
             toggleCurrentPlayer();
         }
         updateCurrentTurnLabel();
         updateScores();
-
-        // Checks if the game is over and pops up a prompt when it's over
         if (gameLogic.isGameOver()) {
-            String winner = gameLogic.getWinner();
-            Alert alert = new Alert(Alert.AlertType.INFORMATION);
-            alert.setTitle("Game Over");
-            if (winner.equals("Draw") || winner.isEmpty()) {
-                alert.setHeaderText("Game Over---Draw!");
-            } else {
-                alert.setHeaderText("Game Over---" + winner + " wins!");
-            }
-            alert.setContentText("Try a new game!");
-            alert.showAndWait();
+            showGameOverAlert();
+        } else if (isCurrentPlayerComputer()) {
+            computerMove();
         }
     }
 
-    private void toggleCurrentPlayer() {
+    // Delay 0.5 seconds
+    public void computerMove() {
+        PauseTransition delay = new PauseTransition(Duration.seconds(0.5));
+        delay.setOnFinished(e -> {
+            if (currentPlayer.equals("Blue")) {
+                bluePlayer.makeMove(gameLogic, this);
+            } else {
+                redPlayer.makeMove(gameLogic, this);
+            }
+        });
+        delay.play();
+    }
+
+    // Determine if the current player is a computer
+    public boolean isCurrentPlayerComputer() {
+        if (currentPlayer.equals("Blue")) {
+            return blueComputer.isSelected();
+        } else {
+            return redComputer.isSelected();
+        }
+    }
+
+    // Updating the button display for a given cell
+    public void updateCellButton(int row, int col, String letter, String playerColor) {
+        boardButtons[row][col].setText(letter);
+        if (playerColor.equals("Blue")) {
+            boardButtons[row][col].setStyle(boardButtons[row][col].getStyle() + " -fx-text-fill: blue;");
+        } else {
+            boardButtons[row][col].setStyle(boardButtons[row][col].getStyle() + " -fx-text-fill: red;");
+        }
+    }
+
+    // Switch current player
+    public void toggleCurrentPlayer() {
         currentPlayer = currentPlayer.equals("Blue") ? "Red" : "Blue";
     }
 
-    // Updated current turn alert and player panel highlighting
-    private void updateCurrentTurnLabel() {
+    // Update current round display
+    public void updateCurrentTurnLabel() {
         currentTurn.setText("Current turn: " + currentPlayer);
         if (currentPlayer.equals("Blue")) {
             currentTurn.setStyle("-fx-text-fill: blue; -fx-font-weight: bold;");
@@ -272,8 +310,8 @@ public class GUI extends Application {
         }
     }
 
-    // Updated score display
-    private void updateScores() {
+    // Updated score display (for general mode)
+    public void updateScores() {
         if (generalGame.isSelected()) {
             blueScoreLabel.setText("Score: " + gameLogic.getBlueScore());
             redScoreLabel.setText("Score: " + gameLogic.getRedScore());
@@ -282,6 +320,26 @@ public class GUI extends Application {
             redScoreLabel.setText("");
         }
     }
+
+
+    public void showGameOverAlert() {
+        if (!gameOverAlertShown) {
+            gameOverAlertShown = true;
+            Platform.runLater(() -> {
+                String winner = gameLogic.getWinner();
+                Alert alert = new Alert(Alert.AlertType.INFORMATION);
+                alert.setTitle("Game Over");
+                if (winner.equals("Draw") || winner.isEmpty()) {
+                    alert.setHeaderText("Game Over --- Draw!");
+                } else {
+                    alert.setHeaderText("Game Over --- " + winner + " wins!");
+                }
+                alert.setContentText("Try a new game!");
+                alert.showAndWait();
+            });
+        }
+    }
+
 
     public static void main(String[] args) {
         launch(args);
