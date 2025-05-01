@@ -1,16 +1,21 @@
 package SOSGame;
 
 import javafx.animation.PauseTransition;
+import javafx.animation.Timeline;
+import javafx.animation.KeyFrame;
 import javafx.application.Application;
+import javafx.application.Platform;
 import javafx.geometry.Insets;
 import javafx.geometry.Pos;
 import javafx.scene.Scene;
 import javafx.scene.control.*;
 import javafx.scene.layout.*;
+import javafx.stage.FileChooser;
 import javafx.stage.Stage;
 import javafx.util.Duration;
-import javafx.application.Platform;
-
+import java.io.*;
+import java.util.ArrayList;
+import java.util.List;
 
 public class GUI extends Application {
     private GameLogic gameLogic;
@@ -27,7 +32,7 @@ public class GUI extends Application {
     private RadioButton simpleGame, generalGame;
     private Label currentTurn;
 
-    // Score label
+    // Score labels
     private Label blueScoreLabel, redScoreLabel;
 
     // Player panels
@@ -38,13 +43,19 @@ public class GUI extends Application {
     private Player bluePlayer;
     private Player redPlayer;
 
-    // Marker: Whether the game over hint box has been displayed or not
+    // Game over marker
     private boolean gameOverAlertShown = false;
+
+    // Record & Replay fields
+    private CheckBox recordGame;
+    private Button replayButton;
+    private Button newGameButton;
+    private File recordFile;
+    private BufferedWriter recordWriter;
 
     @Override
     public void start(Stage primaryStage) {
-
-        // Game Options Area
+        // top options
         HBox topBoard = new HBox(20);
         topBoard.setPadding(new Insets(20));
         topBoard.setAlignment(Pos.CENTER);
@@ -62,7 +73,7 @@ public class GUI extends Application {
 
         topBoard.getChildren().addAll(simpleGame, generalGame, boardSizeLabel, boardSizeNumber);
 
-        // blue board
+        // blue player sheet
         bluePlayerSheet = new VBox(10);
         bluePlayerSheet.setPadding(new Insets(10));
         bluePlayerSheet.setAlignment(Pos.CENTER);
@@ -95,7 +106,7 @@ public class GUI extends Application {
         blueScoreLabel = new Label("Score: 0");
         bluePlayerSheet.getChildren().add(blueScoreLabel);
 
-        // red board
+        // red player sheet
         redPlayerSheet = new VBox(10);
         redPlayerSheet.setPadding(new Insets(10));
         redPlayerSheet.setAlignment(Pos.CENTER);
@@ -128,25 +139,26 @@ public class GUI extends Application {
         redScoreLabel = new Label("Score: 0");
         redPlayerSheet.getChildren().add(redScoreLabel);
 
-        // board area
+        // board pane
         gameTable = new GridPane();
         gameTable.setPadding(new Insets(20));
         gameTable.setAlignment(Pos.CENTER);
         gameTable.setGridLinesVisible(true);
 
-        // bottom control area
+        // bottom controls
         HBox bottomWindow = new HBox(20);
         bottomWindow.setPadding(new Insets(10));
         bottomWindow.setAlignment(Pos.CENTER);
 
-        CheckBox recordGame = new CheckBox("Record game");
+        recordGame = new CheckBox("Record game");
         currentTurn = new Label("Current turn: ");
-        Button replayButton = new Button("Replay");
+        replayButton = new Button("Replay");
         replayButton.setDisable(true);
-        Button newGameButton = new Button("New Game");
+        newGameButton = new Button("New Game");
 
         bottomWindow.getChildren().addAll(recordGame, currentTurn, replayButton, newGameButton);
 
+        // layout
         BorderPane root = new BorderPane();
         root.setTop(topBoard);
         root.setLeft(bluePlayerSheet);
@@ -154,17 +166,48 @@ public class GUI extends Application {
         root.setCenter(gameTable);
         root.setBottom(bottomWindow);
 
+        // actions
         newGameButton.setOnAction(e -> startNewGame());
+
+        recordGame.setOnAction(e -> {
+            if (recordGame.isSelected()) {
+                FileChooser chooser = new FileChooser();
+                chooser.setTitle("Save Game Record");
+                chooser.getExtensionFilters().add(
+                        new FileChooser.ExtensionFilter("Text Files", "*.txt"));
+                File file = chooser.showSaveDialog(primaryStage);
+                if (file != null) {
+                    recordFile = file;
+                    try {
+                        recordWriter = new BufferedWriter(new FileWriter(recordFile));
+                        // write header
+                        recordWriter.write(gameLogic.getBoardSize() + "," +
+                                (gameLogic.isSimpleGame() ? "Simple" : "General") + "\n");
+                        replayButton.setDisable(false);
+                    } catch (IOException ex) {
+                        ex.printStackTrace();
+                    }
+                } else {
+                    recordGame.setSelected(false);
+                }
+            } else {
+                try {
+                    if (recordWriter != null) recordWriter.close();
+                } catch (IOException ex) { ex.printStackTrace(); }
+                recordFile = null;
+                recordWriter = null;
+            }
+        });
+
+        replayButton.setOnAction(e -> replayGame());
 
         Scene scene = new Scene(root, 700, 700);
         primaryStage.setTitle("SOS GAME");
         primaryStage.setScene(scene);
         primaryStage.show();
-
         startNewGame();
     }
 
-    // Reset the board when starting a new game
     private void startNewGame() {
         gameOverAlertShown = false;
         int size = 9;
@@ -189,7 +232,6 @@ public class GUI extends Application {
         updateCurrentTurnLabel();
         updateScores();
 
-        // Determine player type based on radio buttons
         if (blueHuman.isSelected()) {
             bluePlayer = new HumanPlayer("Blue", "Blue");
         } else {
@@ -201,7 +243,6 @@ public class GUI extends Application {
             redPlayer = new ComputerPlayer("Red", "Red");
         }
 
-        // Rebuild Board Buttons
         gameTable.getChildren().clear();
         boardButtons = new Button[size][size];
         for (int row = 0; row < size; row++) {
@@ -209,47 +250,35 @@ public class GUI extends Application {
                 Button cellButton = new Button();
                 cellButton.setPrefSize(40, 40);
                 cellButton.setStyle("-fx-border-color: purple; -fx-font-size: 16px;");
-                final int r = row;
-                final int c = col;
+                final int r = row, c = col;
                 cellButton.setOnAction(e -> handleCellClick(r, c, cellButton));
                 boardButtons[row][col] = cellButton;
-                gameTable.add(cellButton, col, row);
+                gameTable.add(cellButton, c, r);
             }
         }
-
 
         if (isCurrentPlayerComputer()) {
             computerMove();
         }
     }
 
-    // Cell clicking in human-machine matchmaking: only works for human players
     private void handleCellClick(int row, int col, Button cellButton) {
-        if (!gameLogic.getCell(row, col).isEmpty() || gameLogic.isGameOver()) {
-            return;
-        }
+        if (!gameLogic.getCell(row, col).isEmpty() || gameLogic.isGameOver()) return;
         String letter = "";
         if (currentPlayer.equals("Blue")) {
-            if (!blueHuman.isSelected()) {
-                return;
-            }
+            if (!blueHuman.isSelected()) return;
             letter = blueS.isSelected() ? "S" : "O";
             cellButton.setStyle(cellButton.getStyle() + " -fx-text-fill: blue;");
         } else {
-            if (!redHuman.isSelected()) {
-                return;
-            }
+            if (!redHuman.isSelected()) return;
             letter = redS.isSelected() ? "S" : "O";
             cellButton.setStyle(cellButton.getStyle() + " -fx-text-fill: red;");
         }
         int sosCount = gameLogic.makeMove(row, col, letter, currentPlayer);
-        if (sosCount < 0) {
-            return;
-        }
+        if (sosCount < 0) return;
         cellButton.setText(letter);
-        if (sosCount == 0) {
-            toggleCurrentPlayer();
-        }
+        recordMove(row, col, letter, currentPlayer);
+        if (sosCount == 0) toggleCurrentPlayer();
         updateCurrentTurnLabel();
         updateScores();
         if (gameLogic.isGameOver()) {
@@ -259,7 +288,16 @@ public class GUI extends Application {
         }
     }
 
-    // Delay 0.5 seconds
+    public void updateCellButton(int row, int col, String letter, String playerColor) {
+        boardButtons[row][col].setText(letter);
+        if (playerColor.equals("Blue")) {
+            boardButtons[row][col].setStyle(boardButtons[row][col].getStyle() + " -fx-text-fill: blue;");
+        } else {
+            boardButtons[row][col].setStyle(boardButtons[row][col].getStyle() + " -fx-text-fill: red;");
+        }
+        recordMove(row, col, letter, playerColor);
+    }
+
     public void computerMove() {
         PauseTransition delay = new PauseTransition(Duration.seconds(0.5));
         delay.setOnFinished(e -> {
@@ -272,7 +310,6 @@ public class GUI extends Application {
         delay.play();
     }
 
-    // Determine if the current player is a computer
     public boolean isCurrentPlayerComputer() {
         if (currentPlayer.equals("Blue")) {
             return blueComputer.isSelected();
@@ -281,36 +318,21 @@ public class GUI extends Application {
         }
     }
 
-    // Updating the button display for a given cell
-    public void updateCellButton(int row, int col, String letter, String playerColor) {
-        boardButtons[row][col].setText(letter);
-        if (playerColor.equals("Blue")) {
-            boardButtons[row][col].setStyle(boardButtons[row][col].getStyle() + " -fx-text-fill: blue;");
-        } else {
-            boardButtons[row][col].setStyle(boardButtons[row][col].getStyle() + " -fx-text-fill: red;");
-        }
-    }
-
-    // Switch current player
     public void toggleCurrentPlayer() {
         currentPlayer = currentPlayer.equals("Blue") ? "Red" : "Blue";
     }
 
-    // Update current round display
     public void updateCurrentTurnLabel() {
         currentTurn.setText("Current turn: " + currentPlayer);
         if (currentPlayer.equals("Blue")) {
             currentTurn.setStyle("-fx-text-fill: blue; -fx-font-weight: bold;");
             bluePlayerSheet.setStyle("-fx-border-color: blue; -fx-border-width: 2px; -fx-background-color: #d0eaff;");
-            redPlayerSheet.setStyle("");
         } else {
             currentTurn.setStyle("-fx-text-fill: red; -fx-font-weight: bold;");
             redPlayerSheet.setStyle("-fx-border-color: red; -fx-border-width: 2px; -fx-background-color: #ffd0d0;");
-            bluePlayerSheet.setStyle("");
         }
     }
 
-    // Updated score display (for general mode)
     public void updateScores() {
         if (generalGame.isSelected()) {
             blueScoreLabel.setText("Score: " + gameLogic.getBlueScore());
@@ -321,7 +343,6 @@ public class GUI extends Application {
         }
     }
 
-
     public void showGameOverAlert() {
         if (!gameOverAlertShown) {
             gameOverAlertShown = true;
@@ -329,17 +350,86 @@ public class GUI extends Application {
                 String winner = gameLogic.getWinner();
                 Alert alert = new Alert(Alert.AlertType.INFORMATION);
                 alert.setTitle("Game Over");
-                if (winner.equals("Draw") || winner.isEmpty()) {
+                if (winner.equals("Draw") || winner.isEmpty())
                     alert.setHeaderText("Game Over --- Draw!");
-                } else {
+                else
                     alert.setHeaderText("Game Over --- " + winner + " wins!");
-                }
                 alert.setContentText("Try a new game!");
                 alert.showAndWait();
             });
         }
     }
 
+    private void recordMove(int row, int col, String letter, String player) {
+        if (recordWriter != null) {
+            try {
+                recordWriter.write(row + "," + col + "," + letter + "," + player + "\n");
+                recordWriter.flush();
+            } catch (IOException ex) {
+                ex.printStackTrace();
+            }
+        }
+    }
+
+    private void replayGame() {
+        try {
+            // disable controls
+            recordGame.setDisable(true);
+            newGameButton.setDisable(true);
+            simpleGame.setDisable(true);
+            generalGame.setDisable(true);
+            blueHuman.setDisable(true);
+            blueComputer.setDisable(true);
+            redHuman.setDisable(true);
+            redComputer.setDisable(true);
+            blueS.setDisable(true);
+            blueO.setDisable(true);
+            redS.setDisable(true);
+            redO.setDisable(true);
+
+            startNewGame();
+
+            BufferedReader reader = new BufferedReader(new FileReader(recordFile));
+            String line = reader.readLine(); // skip header
+            List<String> moves = new ArrayList<>();
+            while ((line = reader.readLine()) != null) {
+                moves.add(line);
+            }
+            reader.close();
+
+            Timeline timeline = new Timeline();
+            for (int i = 0; i < moves.size(); i++) {
+                String[] parts = moves.get(i).split(",");
+                int row = Integer.parseInt(parts[0]);
+                int col = Integer.parseInt(parts[1]);
+                String letter = parts[2];
+                String player = parts[3];
+
+                KeyFrame kf = new KeyFrame(Duration.seconds(i * 0.5),
+                        e -> updateCellButton(row, col, letter, player));
+                timeline.getKeyFrames().add(kf);
+            }
+            timeline.setOnFinished(e -> {
+                // re-enable controls
+                recordGame.setDisable(false);
+                newGameButton.setDisable(false);
+                simpleGame.setDisable(false);
+                generalGame.setDisable(false);
+                blueHuman.setDisable(false);
+                blueComputer.setDisable(false);
+                redHuman.setDisable(false);
+                redComputer.setDisable(false);
+                blueS.setDisable(false);
+                blueO.setDisable(false);
+                redS.setDisable(false);
+                redO.setDisable(false);
+                replayButton.setDisable(false);
+            });
+            timeline.play();
+        } catch (IOException ex) {
+            ex.printStackTrace();
+        }
+    }
 
     public static void main(String[] args) {
         launch(args);
